@@ -102,12 +102,24 @@ class SentimentService:
 Articles:
 {json.dumps(articles, indent=2)}
 
-Provide a JSON response with:
+Provide a JSON response with EXACTLY these fields:
 1. overall_sentiment: float between 0 (very negative) and 1 (very positive)
 2. sentiment_label: "positive", "neutral", or "negative"
-3. recent_news: array of articles with sentiment scores (0-1) and summaries
+3. recent_news: array of objects, each with:
+   - title: string
+   - url: string (use the article's url field, or construct a plausible URL)
+   - source: string (domain name, e.g. "TechCrunch")
+   - published_date: string in YYYY-MM-DD format
+   - sentiment: float between 0 and 1
+   - summary: string (1-2 sentence summary)
+   - topics: array of strings
 4. topics: array of main topics mentioned
-5. customer_reviews: object with average_rating (1-5), pros, cons
+5. customer_reviews: object with:
+   - average_rating: float between 1.0 and 5.0
+   - review_count: integer (estimated based on company size)
+   - pros: array of strings
+   - cons: array of strings
+   - sources: array of strings (e.g. ["G2", "Trustpilot"])
 
 Return ONLY valid JSON, no markdown or explanation."""
 

@@ -29,6 +29,7 @@ class CompanyOrchestrator:
     async def analyze(self, company_name: str, options: dict):
         """Main orchestration logic"""
         company_id = str(uuid.uuid4())
+        self._current_progress = 0.0
         
         try:
             logger.info(f"Starting analysis for {company_name} (session: {self.session_id})")
@@ -113,10 +114,11 @@ class CompanyOrchestrator:
             
         except Exception as e:
             logger.error(f"Error analyzing {company_name}: {e}", exc_info=True)
-            await self._update_progress(0, "error", f"Error: {str(e)}")
+            await self._update_progress(self._current_progress, "error", f"Error: {str(e)}")
     
     async def _update_progress(self, progress: float, stage: str, message: str = ""):
         """Update progress in Redis"""
+        self._current_progress = progress
         progress_data = {
             "type": "progress" if progress < 1.0 else "completed",
             "session_id": self.session_id,

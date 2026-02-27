@@ -88,8 +88,8 @@ class BrowsingService:
                 f"{self.base_url}/browsing/tasks",
                 headers={"X-API-Key": self.api_key},
                 json={
-                    "url": url,
-                    "extract": ["text", "links", "metadata"]
+                    "task": "Extract all API documentation from this page including: available APIs and endpoints, SDK languages supported, pricing plans, and product features. Return a structured summary of the technical documentation.",
+                    "start_url": url
                 }
             )
             
