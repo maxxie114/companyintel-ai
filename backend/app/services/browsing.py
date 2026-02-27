@@ -1,8 +1,10 @@
 import httpx
 import asyncio
 from app.config import settings
+from app.core.cache import redis_cache
 from typing import Dict, Any, List
 import logging
+import hashlib
 
 logger = logging.getLogger(__name__)
 
@@ -11,10 +13,26 @@ class BrowsingService:
         self.api_key = settings.yutori_api_key
         self.base_url = "https://api.yutori.com/v1"
         self.timeout = 60.0
+        self.cache_ttl = 86400 * 7  # 7 days cache for browsing results
+    
+    def _get_cache_key(self, website: str) -> str:
+        """Generate cache key for website browsing"""
+        url_hash = hashlib.md5(website.lower().encode()).hexdigest()
+        return f"yutori:browsing:{url_hash}:{website.replace('https://', '').replace('http://', '')[:50]}"
     
     async def extract_api_docs(self, website: str) -> Dict[str, Any]:
-        """Use Yutori Browsing to extract API documentation"""
+        """Use Yutori Browsing to extract API documentation with Redis caching"""
         logger.info(f"Extracting API docs from: {website}")
+        
+        # Check cache first
+        cache_key = self._get_cache_key(website)
+        cached_result = await redis_cache.get(cache_key)
+        
+        if cached_result:
+            logger.info(f"✓ Cache HIT for {website} - returning cached browsing data")
+            return cached_result
+        
+        logger.info(f"Cache MISS for {website} - calling Yutori Browsing API")
         
         if not self.api_key:
             raise Exception("Yutori API key not configured")
@@ -28,7 +46,13 @@ class BrowsingService:
                 try:
                     result = await self._browse_page(url)
                     if result:
-                        return self._parse_api_docs(url, result)
+                        parsed_data = self._parse_api_docs(url, result)
+                        
+                        # Cache the result for 7 days
+                        await redis_cache.set(cache_key, parsed_data, ttl=self.cache_ttl)
+                        logger.info(f"✓ Cached browsing results for {website} (TTL: 7 days)")
+                        
+                        return parsed_data
                 except Exception as e:
                     logger.warning(f"Failed to browse {url}: {e}")
                     continue

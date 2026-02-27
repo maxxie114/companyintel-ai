@@ -1,8 +1,10 @@
 import httpx
 import asyncio
 from app.config import settings
+from app.core.cache import redis_cache
 from typing import Dict, Any, List
 import logging
+import hashlib
 
 logger = logging.getLogger(__name__)
 
@@ -11,10 +13,26 @@ class CompetitorService:
         self.tavily_key = settings.tavily_api_key
         self.base_url = "https://api.tavily.com"
         self.timeout = 30.0
+        self.cache_ttl = 86400 * 3  # 3 days cache for competitor data
+    
+    def _get_cache_key(self, company_name: str) -> str:
+        """Generate cache key for competitor analysis"""
+        name_hash = hashlib.md5(company_name.lower().encode()).hexdigest()
+        return f"tavily:competitors:{name_hash}:{company_name.lower().replace(' ', '_')}"
     
     async def find_competitors(self, company_name: str) -> Dict[str, Any]:
-        """Identify and analyze competitors using Tavily search"""
+        """Identify and analyze competitors using Tavily search with Redis caching"""
         logger.info(f"Analyzing competitors for: {company_name}")
+        
+        # Check cache first
+        cache_key = self._get_cache_key(company_name)
+        cached_result = await redis_cache.get(cache_key)
+        
+        if cached_result:
+            logger.info(f"✓ Cache HIT for competitors of {company_name}")
+            return cached_result
+        
+        logger.info(f"Cache MISS for competitors - calling Tavily API")
         
         if not self.tavily_key:
             raise Exception("Tavily API key not configured")
@@ -25,7 +43,13 @@ class CompetitorService:
             search_results = await self._search_tavily(query)
             
             # Parse results to extract competitor information
-            return self._parse_competitors(company_name, search_results)
+            parsed_data = self._parse_competitors(company_name, search_results)
+            
+            # Cache the result for 3 days
+            await redis_cache.set(cache_key, parsed_data, ttl=self.cache_ttl)
+            logger.info(f"✓ Cached competitor data for {company_name} (TTL: 3 days)")
+            
+            return parsed_data
         
         except Exception as e:
             logger.error(f"Error finding competitors: {e}")

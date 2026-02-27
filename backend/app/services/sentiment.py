@@ -1,10 +1,12 @@
 import httpx
 import asyncio
 from app.config import settings
+from app.core.cache import redis_cache
 from typing import Dict, Any, List
 import logging
 from datetime import datetime, timedelta
 import json
+import hashlib
 
 logger = logging.getLogger(__name__)
 
@@ -15,10 +17,26 @@ class SentimentService:
         self.tavily_base_url = "https://api.tavily.com"
         self.openai_base_url = "https://api.openai.com/v1"
         self.timeout = 30.0
+        self.cache_ttl = 3600 * 6  # 6 hours cache for news (news changes frequently)
+    
+    def _get_cache_key(self, company_name: str) -> str:
+        """Generate cache key for sentiment analysis"""
+        name_hash = hashlib.md5(company_name.lower().encode()).hexdigest()
+        return f"sentiment:news:{name_hash}:{company_name.lower().replace(' ', '_')}"
     
     async def analyze_news(self, company_name: str) -> Dict[str, Any]:
-        """Analyze news sentiment using Tavily + OpenAI"""
+        """Analyze news sentiment using Tavily + OpenAI with Redis caching"""
         logger.info(f"Analyzing news sentiment for: {company_name}")
+        
+        # Check cache first
+        cache_key = self._get_cache_key(company_name)
+        cached_result = await redis_cache.get(cache_key)
+        
+        if cached_result:
+            logger.info(f"✓ Cache HIT for sentiment of {company_name}")
+            return cached_result
+        
+        logger.info(f"Cache MISS for sentiment - calling Tavily + OpenAI APIs")
         
         if not self.tavily_key:
             raise Exception("Tavily API key not configured")
@@ -31,6 +49,10 @@ class SentimentService:
             
             # Analyze sentiment using OpenAI
             sentiment_data = await self._analyze_sentiment_with_openai(company_name, news_results)
+            
+            # Cache the result for 6 hours (news changes frequently)
+            await redis_cache.set(cache_key, sentiment_data, ttl=self.cache_ttl)
+            logger.info(f"✓ Cached sentiment data for {company_name} (TTL: 6 hours)")
             
             return sentiment_data
         
