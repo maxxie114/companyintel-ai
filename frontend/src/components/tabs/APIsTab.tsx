@@ -13,17 +13,29 @@ import {
   TableHead,
   TableRow,
   Paper,
-  Rating
+  Rating,
+  Alert
 } from '@mui/material';
 import { ProductsAPIs } from '../../types';
 
 interface APIsTabProps {
   data: ProductsAPIs;
+  enrichmentStatus?: string;
 }
 
-const APIsTab: React.FC<APIsTabProps> = ({ data }) => {
+const APIsTab: React.FC<APIsTabProps> = ({ data, enrichmentStatus }) => {
+  const isEnriching = enrichmentStatus === 'pending';
+
   return (
     <Grid container spacing={3}>
+      {isEnriching && (
+        <Grid item xs={12}>
+          <Alert severity="info">
+            Deep API analysis is running in the background using Yutori browser agent. This takes 5–10 minutes. Refresh the page after a few minutes to see full API documentation, products, and pricing.
+          </Alert>
+        </Grid>
+      )}
+
       <Grid item xs={12} md={6}>
         <Card>
           <CardContent>

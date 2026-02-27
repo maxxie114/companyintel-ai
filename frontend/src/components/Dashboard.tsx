@@ -78,7 +78,7 @@ const Dashboard: React.FC<DashboardProps> = ({ companyId, onNewSearch }) => {
 
   const tabs = [
     { label: 'Overview', component: <OverviewTab data={companyData.data.overview} /> },
-    { label: 'Products & APIs', component: <APIsTab data={companyData.data.products_apis} /> },
+    { label: 'Products & APIs', component: <APIsTab data={companyData.data.products_apis} enrichmentStatus={companyData.enrichment_status} /> },
     { label: 'Market Intelligence', component: <MarketTab data={companyData.data.market_intelligence} /> },
   ];
 

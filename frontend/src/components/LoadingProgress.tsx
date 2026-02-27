@@ -20,13 +20,12 @@ interface LoadingProgressProps {
 }
 
 const STAGES = [
-  { key: 'researching_company', label: 'Researching company overview' },
-  { key: 'extracting_apis', label: 'Extracting API documentation' },
+  { key: 'researching_company', label: 'Searching company info' },
   { key: 'analyzing_competitors', label: 'Analyzing competitors' },
   { key: 'gathering_financials', label: 'Gathering financial data' },
   { key: 'analyzing_team', label: 'Analyzing team & culture' },
   { key: 'processing_news', label: 'Processing news & sentiment' },
-  { key: 'building_graph', label: 'Building knowledge graph' },
+  { key: 'finalizing', label: 'Finalizing results' },
 ];
 
 const LoadingProgress: React.FC<LoadingProgressProps> = ({

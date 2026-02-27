@@ -176,6 +176,7 @@ export interface CompanyResponse {
   slug: string;
   analyzed_at: string;
   status: string;
+  enrichment_status?: string;
   data: CompanyData;
   metadata: CompanyMetadata;
 }
