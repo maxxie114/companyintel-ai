@@ -11,73 +11,26 @@ class FinancialService:
         self.timeout = 30.0
     
     async def get_financial_data(self, company_name: str) -> Dict[str, Any]:
-        """Get financial data from multiple sources"""
+        """Get financial data - Note: Alpha Vantage requires stock symbols, not company names"""
         logger.info(f"Gathering financial data for: {company_name}")
         
-        # For MVP, use mock data
-        return self._get_mock_financials(company_name)
-    
-    def _get_mock_financials(self, company_name: str) -> Dict[str, Any]:
-        """Return mock financial data"""
-        slug = company_name.lower().replace(" ", "-")
+        # Alpha Vantage requires stock symbols (e.g., AAPL, GOOGL)
+        # For private companies or when symbol is unknown, we return basic structure
+        # In production, you'd use a company name -> symbol mapping service
         
-        mock_data = {
-            "stripe": {
-                "status": "private",
-                "stock_symbol": None,
-                "stock_price": None,
-                "market_cap": None,
-                "last_funding_round": {
-                    "round": "Series I",
-                    "amount": 600000000,
-                    "date": "2023-03-14",
-                    "investors": ["Sequoia Capital", "Andreessen Horowitz", "General Catalyst"],
-                    "valuation": 50000000000
-                },
-                "total_funding": 2200000000,
-                "valuation": 50000000000,
-                "revenue_estimate": 14000000000,
-                "revenue_growth_yoy": 50.0,
-                "profitability_status": "profitable",
-                "burn_rate": None
-            },
-            "openai": {
-                "status": "private",
-                "stock_symbol": None,
-                "stock_price": None,
-                "market_cap": None,
-                "last_funding_round": {
-                    "round": "Series C",
-                    "amount": 10000000000,
-                    "date": "2023-01-23",
-                    "investors": ["Microsoft", "Sequoia Capital", "Andreessen Horowitz"],
-                    "valuation": 29000000000
-                },
-                "total_funding": 11300000000,
-                "valuation": 29000000000,
-                "revenue_estimate": 1600000000,
-                "revenue_growth_yoy": 200.0,
-                "profitability_status": "burning",
-                "burn_rate": "$500M/year"
-            }
-        }
+        logger.warning(f"Alpha Vantage requires stock symbols. {company_name} may be private or symbol unknown.")
         
-        return mock_data.get(slug, {
+        return {
             "status": "private",
             "stock_symbol": None,
             "stock_price": None,
             "market_cap": None,
-            "last_funding_round": {
-                "round": "Series A",
-                "amount": 10000000,
-                "date": "2023-01-01",
-                "investors": ["Venture Capital Firm"],
-                "valuation": 50000000
-            },
-            "total_funding": 15000000,
-            "valuation": 50000000,
-            "revenue_estimate": 5000000,
-            "revenue_growth_yoy": 100.0,
-            "profitability_status": "break-even",
-            "burn_rate": None
-        })
+            "last_funding_round": None,
+            "total_funding": None,
+            "valuation": None,
+            "revenue_estimate": None,
+            "revenue_growth_yoy": None,
+            "profitability_status": "unknown",
+            "burn_rate": None,
+            "note": "Financial data requires stock symbol for public companies. Private company data not available via Alpha Vantage."
+        }
