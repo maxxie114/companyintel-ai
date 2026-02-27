@@ -1,0 +1,42 @@
+services:
+  - type: web
+    name: companyintel-api
+    env: python
+    region: oregon
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: YUTORI_API_KEY
+        sync: false
+      - key: TAVILY_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: ALPHA_VANTAGE_API_KEY
+        sync: false
+      - key: NEO4J_URI
+        sync: false
+      - key: NEO4J_USER
+        value: neo4j
+      - key: NEO4J_PASSWORD
+        sync: false
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: companyintel-redis
+          property: connectionString
+      - key: ENVIRONMENT
+        value: production
+      - key: LOG_LEVEL
+        value: INFO
+      - key: CACHE_TTL_SECONDS
+        value: 3600
+
+  - type: redis
+    name: companyintel-redis
+    region: oregon
+    plan: free
+    maxmemoryPolicy: allkeys-lru

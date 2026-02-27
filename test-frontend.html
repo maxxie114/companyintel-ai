@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CompanyIntel Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        .status { padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .success { background: #d4edda; color: #155724; }
+        .error { background: #f8d7da; color: #721c24; }
+        .info { background: #d1ecf1; color: #0c5460; }
+        button { padding: 10px 20px; margin: 5px; cursor: pointer; }
+        pre { background: #f4f4f4; padding: 10px; overflow-x: auto; }
+        #progress { width: 100%; height: 30px; background: #f0f0f0; margin: 10px 0; }
+        #progress-bar { height: 100%; background: #4CAF50; width: 0%; transition: width 0.3s; }
+    </style>
+</head>
+<body>
+    <h1>🚀 CompanyIntel - Backend Test</h1>
+    
+    <div id="status" class="status info">Ready to test...</div>
+    
+    <div>
+        <button onclick="testHealth()">Test Health</button>
+        <button onclick="testAnalyze()">Analyze Company</button>
+        <button onclick="testGetCompany()">Get Cached Company</button>
+    </div>
+    
+    <div id="progress" style="display:none;">
+        <div id="progress-bar"></div>
+    </div>
+    
+    <h3>Response:</h3>
+    <pre id="response">No response yet...</pre>
+    
+    <script>
+        const API_URL = 'http://localhost:8000/api';
+        let currentSessionId = null;
+        let ws = null;
+        
+        function updateStatus(message, type = 'info') {
+            const statusDiv = document.getElementById('status');
+            statusDiv.textContent = message;
+            statusDiv.className = `status ${type}`;
+        }
+        
+        function updateResponse(data) {
+            document.getElementById('response').textContent = JSON.stringify(data, null, 2);
+        }
+        
+        async function testHealth() {
+            updateStatus('Testing health endpoint...', 'info');
+            try {
+                const response = await fetch(`${API_URL}/health`);
+                const data = await response.json();
+                updateStatus('✅ Health check successful!', 'success');
+                updateResponse(data);
+            } catch (error) {
+                updateStatus(`❌ Error: ${error.message}`, 'error');
+                updateResponse({ error: error.message });
+            }
+        }
+        
+        async function testAnalyze() {
+            updateStatus('Starting company analysis...', 'info');
+            document.getElementById('progress').style.display = 'block';
+            
+            try {
+                const response = await fetch(`${API_URL}/analyze`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        company_name: 'Stripe',
+                        options: {
+                            include_apis: true,
+                            include_financials: true,
+                            include_competitors: true,
+                            include_team: true,
+                            include_news: true,
+                            include_graph: true
+                        }
+                    })
+                });
+                
+                const data = await response.json();
+                currentSessionId = data.session_id;
+                updateStatus('✅ Analysis started! Connecting to WebSocket...', 'success');
+                updateResponse(data);
+                
+                // Connect to WebSocket
+                connectWebSocket(data.session_id);
+            } catch (error) {
+                updateStatus(`❌ Error: ${error.message}`, 'error');
+                updateResponse({ error: error.message });
+            }
+        }
+        
+        function connectWebSocket(sessionId) {
+            ws = new WebSocket(`ws://localhost:8000/ws/progress/${sessionId}`);
+            
+            ws.onopen = () => {
+                updateStatus('🔌 WebSocket connected! Receiving progress updates...', 'info');
+            };
+            
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                const progress = Math.round(data.progress * 100);
+                document.getElementById('progress-bar').style.width = `${progress}%`;
+                updateStatus(`📊 ${data.message} (${progress}%)`, 'info');
+                updateResponse(data);
+                
+                if (data.type === 'completed') {
+                    updateStatus('✅ Analysis completed!', 'success');
+                    setTimeout(() => {
+                        document.getElementById('progress').style.display = 'none';
+                    }, 2000);
+                }
+            };
+            
+            ws.onerror = (error) => {
+                updateStatus('❌ WebSocket error', 'error');
+            };
+            
+            ws.onclose = () => {
+                updateStatus('🔌 WebSocket closed', 'info');
+            };
+        }
+        
+        async function testGetCompany() {
+            const companySlug = prompt('Enter company slug (e.g., stripe, openai):', 'openai');
+            if (!companySlug) return;
+            
+            updateStatus(`Fetching ${companySlug} data...`, 'info');
+            try {
+                const response = await fetch(`${API_URL}/company/${companySlug}`);
+                const data = await response.json();
+                
+                if (response.ok) {
+                    updateStatus(`✅ Retrieved ${data.company_name} data from cache!`, 'success');
+                    updateResponse(data);
+                } else {
+                    updateStatus(`❌ ${data.detail}`, 'error');
+                    updateResponse(data);
+                }
+            } catch (error) {
+                updateStatus(`❌ Error: ${error.message}`, 'error');
+                updateResponse({ error: error.message });
+            }
+        }
+        
+        // Auto-test health on load
+        window.onload = () => {
+            testHealth();
+        };
+    </script>
+</body>
+</html>
