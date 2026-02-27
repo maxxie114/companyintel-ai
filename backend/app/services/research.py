@@ -47,8 +47,8 @@ class ResearchService:
             logger.error(f"Error researching {company_name}: {e}")
             raise
     
-    async def _poll_task(self, task_id: str, max_attempts: int = 60) -> Dict[str, Any]:
-        """Poll Yutori task until complete"""
+    async def _poll_task(self, task_id: str, max_attempts: int = 90) -> Dict[str, Any]:
+        """Poll Yutori task until complete (max 3 minutes)"""
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             for attempt in range(max_attempts):
                 try:
@@ -61,12 +61,16 @@ class ResearchService:
                         data = response.json()
                         status = data.get("status")
                         
-                        logger.info(f"Task {task_id} status: {status}")
+                        if attempt % 10 == 0:  # Log every 10th attempt
+                            logger.info(f"Task {task_id} status: {status} (attempt {attempt}/{max_attempts})")
                         
                         if status == "succeeded":
+                            logger.info(f"Task {task_id} completed successfully!")
+                            logger.debug(f"Result data: {data}")
                             return data
                         elif status == "failed":
-                            raise Exception(f"Task failed: {data.get('error', 'Unknown error')}")
+                            error_msg = data.get('error', data.get('message', 'Unknown error'))
+                            raise Exception(f"Task failed: {error_msg}")
                         
                         # Still running, wait and retry
                         await asyncio.sleep(2)
@@ -80,7 +84,7 @@ class ResearchService:
                         raise
                     await asyncio.sleep(2)
         
-        raise Exception("Task polling timeout after 120 seconds")
+        raise Exception(f"Task polling timeout after {max_attempts * 2} seconds")
     
     def _parse_overview(self, company_name: str, raw_data: Dict[str, Any]) -> Dict[str, Any]:
         """Parse raw research data into CompanyOverview format"""
