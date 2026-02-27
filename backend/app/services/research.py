@@ -11,7 +11,7 @@ class ResearchService:
     def __init__(self):
         self.api_key = settings.yutori_api_key
         self.base_url = "https://api.yutori.com/v1"
-        self.timeout = 60.0
+        self.timeout = 300.0  # 5 minutes for long-running research tasks
     
     async def get_company_overview(self, company_name: str) -> Dict[str, Any]:
         """Use Yutori Research API to get company overview"""
@@ -47,8 +47,8 @@ class ResearchService:
             logger.error(f"Error researching {company_name}: {e}")
             raise
     
-    async def _poll_task(self, task_id: str, max_attempts: int = 90) -> Dict[str, Any]:
-        """Poll Yutori task until complete (max 3 minutes)"""
+    async def _poll_task(self, task_id: str, max_attempts: int = 150) -> Dict[str, Any]:
+        """Poll Yutori task until complete (max 5 minutes)"""
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             for attempt in range(max_attempts):
                 try:
