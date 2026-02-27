@@ -57,6 +57,25 @@ const Dashboard: React.FC<DashboardProps> = ({ companyId, onNewSearch }) => {
     fetchData();
   }, [companyId]);
 
+  // Poll for enrichment completion when background API analysis is still running
+  useEffect(() => {
+    if (!companyData || companyData.enrichment_status !== 'pending') return;
+
+    const interval = setInterval(async () => {
+      try {
+        const updated = await companyApi.getCompany(companyId);
+        if (updated.enrichment_status === 'completed') {
+          setCompanyData(updated);
+          clearInterval(interval);
+        }
+      } catch {
+        // silently ignore poll errors
+      }
+    }, 30000); // poll every 30s
+
+    return () => clearInterval(interval);
+  }, [companyId, companyData?.enrichment_status]);
+
   if (isLoading) {
     return (
       <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">

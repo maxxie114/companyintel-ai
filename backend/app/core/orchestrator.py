@@ -155,6 +155,7 @@ class CompanyOrchestrator:
                 cached["metadata"]["confidence_score"] = 0.92
                 await cache_company(company_id, cached)
                 await cache_company(slug, cached)
+                await cache_company(self.session_id, cached)  # also update the session lookup
                 logger.info(f"✅ Cache enriched with deep API data for {company_name}")
         except Exception as e:
             logger.warning(f"Cache enrichment update failed for {company_name}: {e}")
