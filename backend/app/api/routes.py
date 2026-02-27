@@ -1,9 +1,10 @@
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from app.models import (
     AnalyzeRequest, AnalyzeResponse, CompanyResponse,
     CompanyListResponse, HealthResponse, GraphData
 )
 from app.core.cache import get_cached_company
+from app.config import settings
 from datetime import datetime
 import uuid
 import logging
@@ -14,7 +15,8 @@ router = APIRouter()
 @router.post("/analyze", response_model=AnalyzeResponse, status_code=202)
 async def analyze_company(
     request: AnalyzeRequest,
-    background_tasks: BackgroundTasks
+    background_tasks: BackgroundTasks,
+    http_request: Request
 ):
     """Initiate company analysis"""
     session_id = str(uuid.uuid4())
@@ -32,9 +34,11 @@ async def analyze_company(
         request.options.model_dump()
     )
     
-    # Determine WebSocket URL based on environment
-    ws_protocol = "wss" if "https" in str(request) else "ws"
-    ws_url = f"{ws_protocol}://localhost:8000/ws/progress/{session_id}"
+    # Build WebSocket URL dynamically from the incoming request host
+    host = http_request.headers.get("host", "localhost:8000")
+    is_https = http_request.headers.get("x-forwarded-proto", "http") == "https"
+    ws_protocol = "wss" if is_https else "ws"
+    ws_url = f"{ws_protocol}://{host}/ws/progress/{session_id}"
     
     return AnalyzeResponse(
         session_id=session_id,
