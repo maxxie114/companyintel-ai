@@ -25,21 +25,11 @@ services:
       - key: NEO4J_PASSWORD
         sync: false
       - key: REDIS_URL
-        fromService:
-          type: redis
-          name: companyintel-redis
-          property: connectionString
+        sync: false  # Paste your existing Render Redis internal URL here
       - key: ENVIRONMENT
         value: production
       - key: LOG_LEVEL
         value: INFO
-
-  - type: redis
-    name: companyintel-redis
-    region: oregon
-    plan: free
-    maxmemoryPolicy: allkeys-lru
-    ipAllowList: []
 
   - type: web
     name: companyintel-frontend
