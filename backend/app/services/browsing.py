@@ -57,11 +57,28 @@ class BrowsingService:
                     logger.warning(f"Failed to browse {url}: {e}")
                     continue
             
-            raise Exception(f"Could not extract API docs from {website}")
+            # If all paths fail, return empty structure instead of raising
+            logger.warning(f"Could not extract API docs from {website}, returning empty structure")
+            return {
+                "products": [],
+                "apis": [],
+                "documentation_quality": 0.0,
+                "sdk_languages": [],
+                "pricing": [],
+                "note": "API documentation extraction failed - Yutori Browsing API returned validation error"
+            }
         
         except Exception as e:
             logger.error(f"Error extracting API docs: {e}")
-            raise
+            # Return empty structure instead of crashing
+            return {
+                "products": [],
+                "apis": [],
+                "documentation_quality": 0.0,
+                "sdk_languages": [],
+                "pricing": [],
+                "note": f"Error: {str(e)}"
+            }
     
     async def _browse_page(self, url: str) -> Dict[str, Any]:
         """Browse a page using Yutori Browsing API with polling"""

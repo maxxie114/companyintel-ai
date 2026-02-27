@@ -32,7 +32,7 @@ class RedisCache:
             logger.info("Redis connection closed")
     
     async def get(self, key: str) -> Optional[Any]:
-        """Get value from cache"""
+        """Get value from cache with retry on connection error"""
         if not self.client:
             return None
         try:
@@ -40,12 +40,22 @@ class RedisCache:
             if value:
                 return json.loads(value)
             return None
+        except (redis.ConnectionError, ConnectionResetError) as e:
+            logger.warning(f"Redis connection error, reconnecting: {e}")
+            try:
+                await self.connect()  # Reconnect
+                value = await self.client.get(key)
+                if value:
+                    return json.loads(value)
+            except Exception as retry_error:
+                logger.error(f"Redis retry failed: {retry_error}")
+            return None
         except Exception as e:
             logger.error(f"Redis get error: {e}")
             return None
     
     async def set(self, key: str, value: Any, ttl: int = None):
-        """Set value in cache"""
+        """Set value in cache with retry on connection error"""
         if not self.client:
             return
         try:
@@ -55,6 +65,18 @@ class RedisCache:
                 ttl,
                 json.dumps(value, default=str)
             )
+        except (redis.ConnectionError, ConnectionResetError) as e:
+            logger.warning(f"Redis connection error, reconnecting: {e}")
+            try:
+                await self.connect()  # Reconnect
+                ttl = ttl or settings.cache_ttl_seconds
+                await self.client.setex(
+                    key,
+                    ttl,
+                    json.dumps(value, default=str)
+                )
+            except Exception as retry_error:
+                logger.error(f"Redis retry failed: {retry_error}")
         except Exception as e:
             logger.error(f"Redis set error: {e}")
     
