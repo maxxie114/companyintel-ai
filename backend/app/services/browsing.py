@@ -144,6 +144,63 @@ class BrowsingService:
 
         raise Exception("Browsing task polling timeout")
     
+    def _normalize_apis(self, apis: list) -> list:
+        """Convert OpenAI api groups (name + endpoints[]) to APIEndpoint format (path/method/category)."""
+        result = []
+        for api in apis:
+            name = api.get("name", "API")
+            desc = api.get("description", "")
+            auth = api.get("auth_required", True)
+            endpoints = api.get("endpoints", [])
+            if endpoints:
+                for ep in endpoints:
+                    # ep is like "GET /services" or just "/services"
+                    parts = str(ep).split(None, 1)
+                    if len(parts) == 2 and parts[0].isupper():
+                        method, path = parts[0], parts[1]
+                    else:
+                        method, path = "GET", str(ep)
+                    result.append({
+                        "path": path,
+                        "method": method,
+                        "description": desc,
+                        "category": name,
+                        "authentication_required": auth,
+                    })
+            else:
+                result.append({
+                    "path": f"/{name.lower().replace(' ', '-')}",
+                    "method": "GET",
+                    "description": desc,
+                    "category": name,
+                    "authentication_required": auth,
+                })
+        return result
+
+    def _normalize_pricing(self, pricing: list) -> list:
+        """Ensure pricing items match PricingTier (name, price, features, target_audience)."""
+        result = []
+        for tier in pricing:
+            result.append({
+                "name": tier.get("name") or tier.get("tier") or "Plan",
+                "price": tier.get("price", "Contact us"),
+                "features": tier.get("features", []),
+                "target_audience": tier.get("target_audience", ""),
+            })
+        return result
+
+    def _normalize_products(self, products: list) -> list:
+        """Ensure product items match Product (name, description, category)."""
+        result = []
+        for p in products:
+            result.append({
+                "name": p.get("name", "Product"),
+                "description": p.get("description", ""),
+                "category": p.get("category", "Product"),
+                "launch_date": p.get("launch_date"),
+            })
+        return result
+
     async def _parse_api_docs(self, url: str, raw_data: Dict[str, Any]) -> Dict[str, Any]:
         """Parse API documentation from browsing result using OpenAI for structured extraction."""
         result = raw_data.get("result", "")
@@ -220,7 +277,11 @@ Rules:
 
                 parsed = json.loads(content)
                 parsed["raw_content"] = raw_content
-                logger.info(f"✓ OpenAI extracted API docs: {len(parsed.get('products', []))} products, {len(parsed.get('apis', []))} APIs, langs={parsed.get('sdk_languages', [])}")
+                # Normalize to match Pydantic models
+                parsed["apis"] = self._normalize_apis(parsed.get("apis", []))
+                parsed["pricing"] = self._normalize_pricing(parsed.get("pricing", []))
+                parsed["products"] = self._normalize_products(parsed.get("products", []))
+                logger.info(f"✓ OpenAI extracted API docs: {len(parsed.get('products', []))} products, {len(parsed.get('apis', []))} API endpoints, langs={parsed.get('sdk_languages', [])}")
                 return parsed
 
         except Exception as e:
