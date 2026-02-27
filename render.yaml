@@ -39,11 +39,11 @@ services:
     region: oregon
     plan: free
     maxmemoryPolicy: allkeys-lru
+    ipAllowList: []
 
   - type: web
     name: companyintel-frontend
     env: static
-    region: oregon
     rootDir: frontend
     buildCommand: npm install && npm run build
     staticPublishPath: dist
