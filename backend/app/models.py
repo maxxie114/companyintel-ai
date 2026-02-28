@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 
@@ -37,22 +37,42 @@ class CompanyOverview(BaseModel):
 
 class Product(BaseModel):
     name: str
-    description: str
+    description: str = ""
     category: str
     launch_date: Optional[str] = None
+
+    @field_validator('name', 'description', 'category', mode='before')
+    @classmethod
+    def coerce_none_str(cls, v):
+        return v if v is not None else ""
 
 class APIEndpoint(BaseModel):
     path: str
     method: str
-    description: str
+    description: str = ""
     category: str
     authentication_required: bool = True
 
+    @field_validator('path', 'method', 'description', 'category', mode='before')
+    @classmethod
+    def coerce_none_str(cls, v):
+        return v if v is not None else ""
+
 class PricingTier(BaseModel):
     name: str
-    price: str
-    features: List[str]
-    target_audience: str
+    price: str = ""
+    features: List[str] = []
+    target_audience: str = ""
+
+    @field_validator('name', 'price', 'target_audience', mode='before')
+    @classmethod
+    def coerce_none_str(cls, v):
+        return v if v is not None else ""
+
+    @field_validator('features', mode='before')
+    @classmethod
+    def coerce_none_list(cls, v):
+        return v if v is not None else []
 
 class ProductsAPIs(BaseModel):
     products: List[Product] = []
