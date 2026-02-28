@@ -22,47 +22,123 @@ class BrowsingService:
         url_hash = hashlib.md5(website.lower().encode()).hexdigest()
         return f"yutori:browsing:{url_hash}:{website.replace('https://', '').replace('http://', '')[:50]}"
 
-    async def _find_docs_url_with_tavily(self, company_name: str, website: str) -> str:
-        """Ask Tavily for the real developer/API docs URL rather than guessing paths."""
+    async def _gather_tavily_intelligence(self, company_name: str, website: str) -> Dict[str, Any]:
+        """Run parallel Tavily searches to find docs URL, pre-research the API landscape,
+        and collect content snippets — all used to make Yutori's task maximally targeted."""
         if not self.tavily_key:
-            return website
+            return {"docs_url": website, "context": "", "snippets": "", "answers": []}
+
         domain = website.replace("https://", "").replace("http://", "").rstrip("/")
         base = domain.split(".")[-2] if "." in domain else domain
-        try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                r = await client.post(
-                    "https://api.tavily.com/search",
-                    json={
-                        "api_key": self.tavily_key,
-                        "query": f"{company_name} developer API documentation official docs",
-                        "search_depth": "basic",
-                        "max_results": 5,
-                        "include_answer": False,
-                    }
-                )
-                r.raise_for_status()
-                results = r.json().get("results", [])
 
-            dev_keywords = ["developer", "developers", "docs", "documentation", "api", "platform", "dev"]
-            # Prefer a URL that matches the company domain AND looks like a dev portal
-            for res in results:
-                url = res.get("url", "").lower()
-                if base in url and any(k in url for k in dev_keywords):
-                    found = res["url"].rstrip("/")
-                    logger.info(f"✓ Tavily found docs URL for {company_name}: {found}")
-                    return found
-            # Fallback: any result that matches company domain
-            for res in results:
+        queries = [
+            f"{company_name} developer API documentation official docs site:{domain}",
+            f"{company_name} REST API endpoints authentication SDK programming languages",
+            f"{company_name} API pricing plans developer tiers",
+        ]
+
+        async def _search(query: str) -> Dict[str, Any]:
+            try:
+                async with httpx.AsyncClient(timeout=15.0) as client:
+                    r = await client.post(
+                        "https://api.tavily.com/search",
+                        json={
+                            "api_key": self.tavily_key,
+                            "query": query,
+                            "search_depth": "advanced",
+                            "max_results": 5,
+                            "include_answer": True,
+                        }
+                    )
+                    r.raise_for_status()
+                    return r.json()
+            except Exception as e:
+                logger.warning(f"Tavily search failed for '{query}': {e}")
+                return {}
+
+        # Fire all three searches in parallel
+        docs_result, api_result, pricing_result = await asyncio.gather(
+            _search(queries[0]),
+            _search(queries[1]),
+            _search(queries[2]),
+        )
+
+        # --- Find docs URL ---
+        dev_keywords = ["developer", "developers", "docs", "documentation", "api", "platform", "dev", "reference"]
+        docs_url = website
+        for res in docs_result.get("results", []):
+            url = res.get("url", "").lower()
+            if base in url and any(k in url for k in dev_keywords):
+                docs_url = res["url"].rstrip("/")
+                logger.info(f"✓ Tavily found docs URL for {company_name}: {docs_url}")
+                break
+        if docs_url == website:
+            for res in docs_result.get("results", []):
                 if base in res.get("url", "").lower():
-                    found = res["url"].rstrip("/")
-                    logger.info(f"Tavily fallback docs URL for {company_name}: {found}")
-                    return found
-        except Exception as e:
-            logger.warning(f"Tavily docs search failed for {company_name}: {e}")
-        return website
+                    docs_url = res["url"].rstrip("/")
+                    logger.info(f"Tavily fallback docs URL for {company_name}: {docs_url}")
+                    break
+
+        # --- Collect Tavily AI answers ---
+        answers = []
+        for result_set in [docs_result, api_result, pricing_result]:
+            answer = result_set.get("answer", "")
+            if answer:
+                answers.append(answer)
+
+        # --- Collect content snippets from all results ---
+        snippets = []
+        seen_urls = set()
+        for result_set in [docs_result, api_result, pricing_result]:
+            for res in result_set.get("results", [])[:3]:
+                url = res.get("url", "")
+                content = res.get("content", "").strip()
+                if content and url not in seen_urls:
+                    seen_urls.add(url)
+                    snippets.append(f"[Source: {url}]\n{content}")
+
+        snippets_text = "\n\n---\n\n".join(snippets[:8])  # up to 8 snippets
+
+        # --- Build a structured context summary for Yutori ---
+        context_parts = []
+        if answers:
+            context_parts.append("Web research summary:\n" + "\n".join(f"• {a}" for a in answers))
+        if snippets:
+            # Extract key signals from snippets to hint Yutori
+            api_hints = []
+            sdk_hints = []
+            pricing_hints = []
+            for s in snippets:
+                sl = s.lower()
+                if any(w in sl for w in ["endpoint", "rest api", "graphql", "webhook", "oauth"]):
+                    api_hints.append(s[:300])
+                if any(w in sl for w in ["python", "javascript", "node", "ruby", "go", "java", "sdk", "library"]):
+                    sdk_hints.append(s[:200])
+                if any(w in sl for w in ["pricing", "plan", "free", "enterprise", "per month", "per request"]):
+                    pricing_hints.append(s[:200])
+
+            if api_hints:
+                context_parts.append("Known API signals:\n" + "\n".join(api_hints[:2]))
+            if sdk_hints:
+                context_parts.append("Known SDK signals:\n" + "\n".join(sdk_hints[:2]))
+            if pricing_hints:
+                context_parts.append("Known pricing signals:\n" + "\n".join(pricing_hints[:2]))
+
+        context = "\n\n".join(context_parts)
+        logger.info(
+            f"✓ Tavily intelligence gathered for {company_name}: "
+            f"{len(snippets)} snippets, {len(answers)} AI answers, docs_url={docs_url}"
+        )
+
+        return {
+            "docs_url": docs_url,
+            "context": context,
+            "snippets": snippets_text,
+            "answers": answers,
+        }
 
     async def extract_api_docs(self, website: str, company_name: str = "") -> Dict[str, Any]:
-        """Find real docs URL via Tavily, then use Yutori Browsing to extract content."""
+        """Gather Tavily intelligence first, then send a targeted Yutori browse."""
         logger.info(f"Extracting API docs for {company_name or website}")
 
         cache_key = self._get_cache_key(website)
@@ -81,20 +157,33 @@ class BrowsingService:
             raise Exception("Yutori API key not configured")
 
         try:
-            # Step 1: Tavily finds the correct docs URL (no blind path guessing)
-            docs_url = await self._find_docs_url_with_tavily(company_name or website, website)
+            # Step 1: Tavily gathers intelligence in parallel (docs URL + API/SDK/pricing context)
+            intel = await self._gather_tavily_intelligence(company_name or website, website)
+            docs_url = intel["docs_url"]
+            tavily_snippets = intel["snippets"]
+            yutori_context = intel["context"]
+
             logger.info(f"Sending Yutori to: {docs_url}")
 
-            # Step 2: One targeted Yutori browse
+            # Step 2: One targeted Yutori browse, enriched with Tavily context
             try:
-                result = await self._browse_page(docs_url)
+                result = await self._browse_page(docs_url, company_name=company_name, context=yutori_context)
                 if result:
-                    parsed_data = await self._parse_api_docs(docs_url, result)
+                    parsed_data = await self._parse_api_docs(docs_url, result, tavily_snippets=tavily_snippets)
                     await redis_cache.set(cache_key, parsed_data, ttl=self.cache_ttl)
                     logger.info(f"✓ Cached browsing results for {website} (TTL: 7 days)")
                     return parsed_data
             except Exception as e:
                 logger.warning(f"Yutori browse failed for {docs_url}: {e}")
+
+            # Step 3: Yutori failed — fall back to parsing Tavily snippets alone
+            if tavily_snippets:
+                logger.info(f"Falling back to Tavily snippets for {company_name}")
+                fallback = await self._parse_api_docs(docs_url, {"result": tavily_snippets}, tavily_snippets="")
+                if fallback.get("products") or fallback.get("apis"):
+                    fallback["note"] = "Extracted from web search (Yutori unavailable)"
+                    await redis_cache.set(cache_key, fallback, ttl=self.cache_ttl)
+                    return fallback
 
             return {
                 "products": [], "apis": [], "documentation_quality": 0.0,
@@ -109,29 +198,35 @@ class BrowsingService:
                 "sdk_languages": [], "pricing": [],
                 "note": f"Error: {str(e)}"
             }
-    
-    async def _browse_page(self, url: str) -> Dict[str, Any]:
-        """Browse a page using Yutori Browsing API with polling"""
+
+    async def _browse_page(self, url: str, company_name: str = "", context: str = "") -> Dict[str, Any]:
+        """Browse a page using Yutori Browsing API. Task prompt is enriched with Tavily pre-research."""
+        context_block = f"\n\nPre-research context from web search:\n{context}\n" if context else ""
+
+        task = f"""You are extracting complete API documentation for {company_name or url}.{context_block}
+Navigate this developer documentation site and extract:
+1. All API product offerings and what each does (Payments API, Video API, etc.)
+2. API endpoints with HTTP methods and paths (GET /v1/charges, POST /v2/meetings, etc.)
+3. Authentication methods (API key, OAuth 2.0, JWT, etc.)
+4. Official SDK/client libraries and supported programming languages
+5. Pricing plans — tier names, prices, included features
+6. Rate limits or usage quotas if mentioned
+
+Follow navigation links to sub-pages (API Reference, SDKs, Pricing) to find complete information.
+Return a thorough structured summary of everything found."""
+
         async with httpx.AsyncClient(timeout=self.timeout) as client:
-            # Create browsing task
             response = await client.post(
                 f"{self.base_url}/browsing/tasks",
                 headers={"X-API-Key": self.api_key},
-                json={
-                    "task": "Extract all API documentation from this page including: available APIs and endpoints, SDK languages supported, pricing plans, and product features. Return a structured summary of the technical documentation.",
-                    "start_url": url
-                }
+                json={"task": task, "start_url": url}
             )
-            
             response.raise_for_status()
             task_data = response.json()
             task_id = task_data.get("task_id")
-            
             logger.info(f"Yutori browsing task created: {task_id}")
-            
-            # Poll for results
             return await self._poll_task(task_id)
-    
+
     async def _poll_task(self, task_id: str, max_attempts: int = 90, poll_interval: int = 10) -> Dict[str, Any]:
         """Poll Yutori task until complete. Browsing tasks take 5-10 min so poll every 10s."""
         async with httpx.AsyncClient(timeout=self.timeout) as client:
@@ -165,7 +260,7 @@ class BrowsingService:
                         raise
 
         raise Exception("Browsing task polling timeout")
-    
+
     def _normalize_apis(self, apis: list) -> list:
         """Convert OpenAI api groups (name + endpoints[]) to APIEndpoint format (path/method/category)."""
         result = []
@@ -176,7 +271,6 @@ class BrowsingService:
             endpoints = api.get("endpoints", [])
             if endpoints:
                 for ep in endpoints:
-                    # ep is like "GET /services" or just "/services"
                     parts = str(ep).split(None, 1)
                     if len(parts) == 2 and parts[0].isupper():
                         method, path = parts[0], parts[1]
@@ -223,16 +317,23 @@ class BrowsingService:
             })
         return result
 
-    async def _parse_api_docs(self, url: str, raw_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Parse API documentation from browsing result using OpenAI for structured extraction."""
+    async def _parse_api_docs(self, url: str, raw_data: Dict[str, Any], tavily_snippets: str = "") -> Dict[str, Any]:
+        """Parse API documentation using OpenAI. Combines Yutori result + Tavily snippets for richer context."""
         result = raw_data.get("result", "")
-        # Yutori returns result as a plain string or occasionally a dict
         if isinstance(result, dict):
             text = result.get("content") or result.get("text") or str(result)
         else:
             text = str(result) if result else ""
 
-        raw_content = text[:3000]
+        yutori_text = text[:4000]
+
+        # Combine Yutori content + Tavily snippets for OpenAI
+        combined_parts = []
+        if yutori_text.strip():
+            combined_parts.append(f"=== Browser-extracted content ===\n{yutori_text}")
+        if tavily_snippets.strip():
+            combined_parts.append(f"=== Web search snippets ===\n{tavily_snippets[:2000]}")
+        raw_content = "\n\n".join(combined_parts)
 
         if not raw_content.strip() or not self.openai_key:
             return {
@@ -241,7 +342,7 @@ class BrowsingService:
                 "documentation_quality": 2.0,
                 "sdk_languages": [],
                 "pricing": [],
-                "raw_content": raw_content,
+                "raw_content": yutori_text,
             }
 
         prompt = f"""Based on this API documentation content from {url}:
@@ -286,7 +387,7 @@ Rules:
                             {"role": "user", "content": prompt}
                         ],
                         "temperature": 0.1,
-                        "max_tokens": 1200
+                        "max_tokens": 1500
                     }
                 )
                 response.raise_for_status()
@@ -298,12 +399,14 @@ Rules:
                     content = content.split("```")[1].split("```")[0].strip()
 
                 parsed = json.loads(content)
-                parsed["raw_content"] = raw_content
-                # Normalize to match Pydantic models
+                parsed["raw_content"] = yutori_text
                 parsed["apis"] = self._normalize_apis(parsed.get("apis", []))
                 parsed["pricing"] = self._normalize_pricing(parsed.get("pricing", []))
                 parsed["products"] = self._normalize_products(parsed.get("products", []))
-                logger.info(f"✓ OpenAI extracted API docs: {len(parsed.get('products', []))} products, {len(parsed.get('apis', []))} API endpoints, langs={parsed.get('sdk_languages', [])}")
+                logger.info(
+                    f"✓ OpenAI extracted API docs: {len(parsed.get('products', []))} products, "
+                    f"{len(parsed.get('apis', []))} API endpoints, langs={parsed.get('sdk_languages', [])}"
+                )
                 return parsed
 
         except Exception as e:
@@ -314,5 +417,5 @@ Rules:
                 "documentation_quality": 2.5,
                 "sdk_languages": [],
                 "pricing": [],
-                "raw_content": raw_content,
+                "raw_content": yutori_text,
             }
