@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ThemeProvider, createTheme, CssBaseline, Container, Box, Typography } from '@mui/material';
 import CompanySearch from './components/CompanySearch';

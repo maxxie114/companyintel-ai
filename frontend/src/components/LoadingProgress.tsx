@@ -34,7 +34,7 @@ const LoadingProgress: React.FC<LoadingProgressProps> = ({
 }) => {
   const [progress, setProgress] = useState<ProgressMessage | null>(null);
   const [isConnected, setIsConnected] = useState(false);
-  const [companySlug, setCompanySlug] = useState<string | null>(null);
+  const [_companySlug, _setCompanySlug] = useState<string | null>(null);
 
   useEffect(() => {
     const wsUrl = `ws://localhost:8000/ws/progress/${sessionId}`;
