@@ -126,7 +126,7 @@ class CompanyOrchestrator:
             website = overview_data.get("website", "")
             if website:
                 logger.info(f"Starting Yutori browsing for {website}")
-                apis_data = await self.browsing.extract_api_docs(website)
+                apis_data = await self.browsing.extract_api_docs(website, company_name)
                 logger.info(f"✓ Yutori browsing complete for {company_name}")
         except Exception as e:
             logger.warning(f"Browsing enrichment failed for {company_name}: {e}")

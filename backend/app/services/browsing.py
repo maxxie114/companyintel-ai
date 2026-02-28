@@ -13,78 +13,100 @@ class BrowsingService:
     def __init__(self):
         self.api_key = settings.yutori_api_key
         self.openai_key = settings.openai_api_key
+        self.tavily_key = settings.tavily_api_key
         self.base_url = "https://api.yutori.com/v1"
         self.timeout = 60.0
         self.cache_ttl = 86400 * 7  # 7 days cache for browsing results
-    
+
     def _get_cache_key(self, website: str) -> str:
-        """Generate cache key for website browsing"""
         url_hash = hashlib.md5(website.lower().encode()).hexdigest()
         return f"yutori:browsing:{url_hash}:{website.replace('https://', '').replace('http://', '')[:50]}"
-    
-    async def extract_api_docs(self, website: str) -> Dict[str, Any]:
-        """Use Yutori Browsing to extract API documentation with Redis caching"""
-        logger.info(f"Extracting API docs from: {website}")
-        
-        # Check cache first
+
+    async def _find_docs_url_with_tavily(self, company_name: str, website: str) -> str:
+        """Ask Tavily for the real developer/API docs URL rather than guessing paths."""
+        if not self.tavily_key:
+            return website
+        domain = website.replace("https://", "").replace("http://", "").rstrip("/")
+        base = domain.split(".")[-2] if "." in domain else domain
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                r = await client.post(
+                    "https://api.tavily.com/search",
+                    json={
+                        "api_key": self.tavily_key,
+                        "query": f"{company_name} developer API documentation official docs",
+                        "search_depth": "basic",
+                        "max_results": 5,
+                        "include_answer": False,
+                    }
+                )
+                r.raise_for_status()
+                results = r.json().get("results", [])
+
+            dev_keywords = ["developer", "developers", "docs", "documentation", "api", "platform", "dev"]
+            # Prefer a URL that matches the company domain AND looks like a dev portal
+            for res in results:
+                url = res.get("url", "").lower()
+                if base in url and any(k in url for k in dev_keywords):
+                    found = res["url"].rstrip("/")
+                    logger.info(f"✓ Tavily found docs URL for {company_name}: {found}")
+                    return found
+            # Fallback: any result that matches company domain
+            for res in results:
+                if base in res.get("url", "").lower():
+                    found = res["url"].rstrip("/")
+                    logger.info(f"Tavily fallback docs URL for {company_name}: {found}")
+                    return found
+        except Exception as e:
+            logger.warning(f"Tavily docs search failed for {company_name}: {e}")
+        return website
+
+    async def extract_api_docs(self, website: str, company_name: str = "") -> Dict[str, Any]:
+        """Find real docs URL via Tavily, then use Yutori Browsing to extract content."""
+        logger.info(f"Extracting API docs for {company_name or website}")
+
         cache_key = self._get_cache_key(website)
         cached_result = await redis_cache.get(cache_key)
-        
+
         if cached_result:
-            # Re-parse stale cache entries that have raw_content but empty structured fields
             if cached_result.get("raw_content") and not cached_result.get("products") and not cached_result.get("apis"):
-                logger.info(f"Cache HIT for {website} but stale (no products/apis) — re-parsing with OpenAI")
+                logger.info(f"Cache HIT for {website} but stale — re-parsing with OpenAI")
                 reparsed = await self._parse_api_docs(website, {"result": cached_result["raw_content"]})
                 await redis_cache.set(cache_key, reparsed, ttl=self.cache_ttl)
                 return reparsed
-            logger.info(f"✓ Cache HIT for {website} - returning cached browsing data")
+            logger.info(f"✓ Cache HIT for {website}")
             return cached_result
-        
-        logger.info(f"Cache MISS for {website} - calling Yutori Browsing API")
-        
+
         if not self.api_key:
             raise Exception("Yutori API key not configured")
-        
+
         try:
-            # Try common API documentation paths
-            doc_paths = ["/docs", "/api", "/developers", "/documentation", ""]
-            
-            for path in doc_paths:
-                url = f"{website.rstrip('/')}{path}"
-                try:
-                    result = await self._browse_page(url)
-                    if result:
-                        parsed_data = await self._parse_api_docs(url, result)
-                        
-                        # Cache the result for 7 days
-                        await redis_cache.set(cache_key, parsed_data, ttl=self.cache_ttl)
-                        logger.info(f"✓ Cached browsing results for {website} (TTL: 7 days)")
-                        
-                        return parsed_data
-                except Exception as e:
-                    logger.warning(f"Failed to browse {url}: {e}")
-                    continue
-            
-            # If all paths fail, return empty structure instead of raising
-            logger.warning(f"Could not extract API docs from {website}, returning empty structure")
+            # Step 1: Tavily finds the correct docs URL (no blind path guessing)
+            docs_url = await self._find_docs_url_with_tavily(company_name or website, website)
+            logger.info(f"Sending Yutori to: {docs_url}")
+
+            # Step 2: One targeted Yutori browse
+            try:
+                result = await self._browse_page(docs_url)
+                if result:
+                    parsed_data = await self._parse_api_docs(docs_url, result)
+                    await redis_cache.set(cache_key, parsed_data, ttl=self.cache_ttl)
+                    logger.info(f"✓ Cached browsing results for {website} (TTL: 7 days)")
+                    return parsed_data
+            except Exception as e:
+                logger.warning(f"Yutori browse failed for {docs_url}: {e}")
+
             return {
-                "products": [],
-                "apis": [],
-                "documentation_quality": 0.0,
-                "sdk_languages": [],
-                "pricing": [],
-                "note": "API documentation extraction failed - Yutori Browsing API returned validation error"
+                "products": [], "apis": [], "documentation_quality": 0.0,
+                "sdk_languages": [], "pricing": [],
+                "note": "API documentation extraction failed"
             }
-        
+
         except Exception as e:
             logger.error(f"Error extracting API docs: {e}")
-            # Return empty structure instead of crashing
             return {
-                "products": [],
-                "apis": [],
-                "documentation_quality": 0.0,
-                "sdk_languages": [],
-                "pricing": [],
+                "products": [], "apis": [], "documentation_quality": 0.0,
+                "sdk_languages": [], "pricing": [],
                 "note": f"Error: {str(e)}"
             }
     
