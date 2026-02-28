@@ -277,19 +277,19 @@ Return a thorough structured summary of everything found."""
                     else:
                         method, path = "GET", str(ep)
                     result.append({
-                        "path": path,
-                        "method": method,
-                        "description": desc,
-                        "category": name,
-                        "authentication_required": auth,
+                        "path": path or "/",
+                        "method": method or "GET",
+                        "description": desc or "",
+                        "category": name or "API",
+                        "authentication_required": auth if auth is not None else True,
                     })
             else:
                 result.append({
                     "path": f"/{name.lower().replace(' ', '-')}",
                     "method": "GET",
-                    "description": desc,
-                    "category": name,
-                    "authentication_required": auth,
+                    "description": desc or "",
+                    "category": name or "API",
+                    "authentication_required": auth if auth is not None else True,
                 })
         return result
 
@@ -299,9 +299,9 @@ Return a thorough structured summary of everything found."""
         for tier in pricing:
             result.append({
                 "name": tier.get("name") or tier.get("tier") or "Plan",
-                "price": tier.get("price", "Contact us"),
-                "features": tier.get("features", []),
-                "target_audience": tier.get("target_audience", ""),
+                "price": tier.get("price") or "Contact us",
+                "features": tier.get("features") or [],
+                "target_audience": tier.get("target_audience") or "",
             })
         return result
 
@@ -310,9 +310,9 @@ Return a thorough structured summary of everything found."""
         result = []
         for p in products:
             result.append({
-                "name": p.get("name", "Product"),
-                "description": p.get("description", ""),
-                "category": p.get("category", "Product"),
+                "name": p.get("name") or "Product",
+                "description": p.get("description") or "",
+                "category": p.get("category") or "Product",
                 "launch_date": p.get("launch_date"),
             })
         return result
