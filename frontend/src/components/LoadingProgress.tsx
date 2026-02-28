@@ -37,7 +37,9 @@ const LoadingProgress: React.FC<LoadingProgressProps> = ({
   const [_companySlug, _setCompanySlug] = useState<string | null>(null);
 
   useEffect(() => {
-    const wsUrl = `ws://localhost:8000/ws/progress/${sessionId}`;
+    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+    const wsBase = apiUrl.replace(/^https:\/\//, 'wss://').replace(/^http:\/\//, 'ws://');
+    const wsUrl = `${wsBase}/ws/progress/${sessionId}`;
     const ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
